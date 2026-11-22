@@ -1,0 +1,18 @@
+# Shibata Lab apps portal
+# AI 学習用クロールを拒否し、検索と AI 入力（参照）は許可する方針（www と同一）。
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: *
+Allow: /
+
+Content-Signal: ai-train=no, search=yes, ai-input=yes

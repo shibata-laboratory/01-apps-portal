@@ -1,0 +1,42 @@
+---
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} | Shibata Lab Apps</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; color: #222; }
+      header { border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; gap: 16px; align-items: baseline; }
+      header .brand { font-weight: 700; text-decoration: none; color: inherit; }
+      header nav a { margin-right: 12px; color: #555; text-decoration: none; }
+      main { max-width: 880px; margin: 0 auto; padding: 24px 20px 64px; }
+      .badge { display: inline-block; font-size: 12px; border: 1px solid #999; border-radius: 999px; padding: 1px 8px; margin-right: 6px; color: #444; }
+      .badge.exp { border-color: #b35c00; color: #b35c00; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+      .card h3 { margin: 0 0 6px; }
+      .card p { margin: 0 0 8px; color: #555; }
+      button { cursor: pointer; }
+      .notice { background: #fff7e6; border: 1px solid #e0c07a; padding: 12px; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Shibata Lab Apps</a>
+      <nav>
+        <a href="/">一覧</a>
+        <a href="/mypage/">マイページ</a>
+        <a href="/login/">ログイン</a>
+      </nav>
+    </header>
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="ログイン">
+  <h1>ログイン / 新規登録</h1>
+  <p>
+    実験への参加と、マイページの利用にはログインが必要です。
+    ツールとゲームはログインなしで使えます。
+  </p>
+
+  <div id="unconfigured" class="notice" hidden>
+    Firebase の設定がまだ投入されていません（管理者向けの表示です）。
+  </div>
+
+  <div id="login-ui">
+    <p><button id="google">Google でログイン</button></p>
+    <hr />
+    <p>メールリンクでログイン（パスワード不要）：</p>
+    <p>
+      <input id="email" type="email" placeholder="メールアドレス" size="32" />
+      <button id="send-link">リンクを送る</button>
+    </p>
+    <p id="status"></p>
+  </div>
+
+  <script>
+    import {
+      GoogleAuthProvider,
+      signInWithPopup,
+      sendSignInLinkToEmail,
+      isSignInWithEmailLink,
+      signInWithEmailLink,
+    } from 'firebase/auth';
+    import { initLabClient } from '@lab/client';
+    import { firebaseConfig, isConfigured } from '../firebase-config';
+
+    const status = document.getElementById('status')!;
+
+    if (!isConfigured) {
+      document.getElementById('unconfigured')!.hidden = false;
+      document.getElementById('login-ui')!.style.display = 'none';
+    } else {
+      const { auth } = initLabClient(firebaseConfig);
+
+      // メールリンクからの復帰処理
+      if (isSignInWithEmailLink(auth, window.location.href)) {
+        const email = window.localStorage.getItem('labPortalEmail') ?? window.prompt('確認のため、メールアドレスを入力してください');
+        if (email) {
+          signInWithEmailLink(auth, email, window.location.href)
+            .then(() => {
+              window.localStorage.removeItem('labPortalEmail');
+              status.textContent = 'ログインしました。マイページへ移動します。';
+              window.location.href = '/mypage/';
+            })
+            .catch((e) => { status.textContent = 'ログインに失敗しました: ' + e.message; });
+        }
+      }
+
+      document.getElementById('google')!.addEventListener('click', async () => {
+        try {
+          await signInWithPopup(auth, new GoogleAuthProvider());
+          window.location.href = '/mypage/';
+        } catch (e: any) {
+          status.textContent = 'ログインに失敗しました: ' + e.message;
+        }
+      });
+
+      document.getElementById('send-link')!.addEventListener('click', async () => {
+        const email = (document.getElementById('email') as HTMLInputElement).value;
+        if (!email) { status.textContent = 'メールアドレスを入力してください。'; return; }
+        try {
+          await sendSignInLinkToEmail(auth, email, {
+            url: window.location.origin + '/login/',
+            handleCodeInApp: true,
+          });
+          window.localStorage.setItem('labPortalEmail', email);
+          status.textContent = 'ログイン用のリンクをメールで送りました。メール内のリンクを開いてください。';
+        } catch (e: any) {
+          status.textContent = '送信に失敗しました: ' + e.message;
+        }
+      });
+    }
+  </script>
+</Base>

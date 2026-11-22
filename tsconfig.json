@@ -1,0 +1,1 @@
+{"compilerOptions":{"baseUrl":".","paths":{"@lab/client":["./packages/lab-client/src/index.ts"]}},"extends":"astro/tsconfigs/strict"}

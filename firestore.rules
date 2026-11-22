@@ -1,0 +1,125 @@
+rules_version = '2';
+
+// 統一規格 v0.1 第8章の実装版ルール（v0.2）。
+// 前提:
+// - 管理者（柴田）は admins/{uid} 文書の存在で判定する。初回にコンソールで
+//   柴田の UID の文書を admins コレクションへ手動作成すること。
+// - 本ルールは Emulator による自動テスト（規格 第13章）で検証してから
+//   本番へ適用する。未検証のまま適用しないこと。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function myParticipantCode() {
+      return get(/databases/$(database)/documents/identityLinks/$(request.auth.uid)).data.participantCode;
+    }
+    function hasIdentityLink() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/identityLinks/$(request.auth.uid));
+    }
+
+    // 管理者名簿: 本人の読み取りのみ可。書き込みはコンソール（ルール外）でのみ行う
+    match /admins/{uid} {
+      allow get: if isSignedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    // 実験メタデータ: 全員が読める。書き込みは管理者のみ（公開ゲートは status の変更で管理）
+    match /experiments/{experimentId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // コード所有者登録: 作成は本人の uid を持つ文書のみ。読み取りはルール内照合と管理者のみ
+    match /participantCodes/{code} {
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt']);
+      allow get, list: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // 対応表: 自分の文書の get と新規作成のみ。作成時は登録済みコードの所有者であることを照合する
+    match /identityLinks/{uid} {
+      allow get: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.participantCode is string
+        && request.resource.data.participantCode.size() == 22
+        && request.resource.data.participantCode.matches('p_[a-z0-9]{20}')
+        && get(/databases/$(database)/documents/participantCodes/$(request.resource.data.participantCode)).data.uid == request.auth.uid;
+      allow update, delete: if isAdmin();
+      allow list: if isAdmin();
+    }
+
+    // 本人設定（登録時オプトイン等）: 自分の文書のみ読み書き可。研究データではない
+    match /userPreferences/{uid} {
+      allow read, write: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+    }
+
+    // 同意記録: 作成は本人のコードでのみ。読み取りは本人の記録のみ。
+    // 更新は status を withdrawal_requested へ変える操作だけを本人に許可する（規格 4.4 / 4.6）
+    match /consentRecords/{recordId} {
+      allow create: if hasIdentityLink()
+        && request.resource.data.participantCode == myParticipantCode()
+        && request.resource.data.status == 'agreed'
+        && request.resource.data.keys().hasOnly(
+          ['participantCode', 'experimentId', 'consentVersion', 'consentHash', 'status', 'agreedAt'])
+        && exists(/databases/$(database)/documents/experiments/$(request.resource.data.experimentId));
+      allow get, list: if isAdmin()
+        || (hasIdentityLink() && resource.data.participantCode == myParticipantCode());
+      allow update: if isAdmin()
+        || (hasIdentityLink()
+          && resource.data.participantCode == myParticipantCode()
+          && resource.data.status == 'agreed'
+          && request.resource.data.status == 'withdrawal_requested'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'withdrawnAt']));
+      allow delete: if isAdmin();
+    }
+
+    // セッション作成時の整合性検証（規格 8章）:
+    // 実験が open であること、同意記録が実在し本人のもので対象実験と一致すること、
+    // 同意版が現行版と一致し status が agreed であること、コードが対応表と一致すること
+    function validSessionCreate(data) {
+      let exp = get(/databases/$(database)/documents/experiments/$(data.experimentId)).data;
+      let consent = get(/databases/$(database)/documents/consentRecords/$(data.consentRecordId)).data;
+      return hasIdentityLink()
+        && data.participantCode == myParticipantCode()
+        && exp.status == 'open'
+        && consent.participantCode == data.participantCode
+        && consent.experimentId == data.experimentId
+        && consent.consentVersion == exp.consentVersion
+        && consent.status == 'agreed'
+        && data.receivedAt == request.time
+        && data.schemaVersion == 1
+        && data.keys().size() <= 16
+        && data.events.size() <= 10000;
+    }
+
+    match /sessions/{sessionId} {
+      allow create: if validSessionCreate(request.resource.data);
+      allow get, list, update, delete: if isAdmin();
+
+      // 分割片: 本体より先に書く規格のため、本体の存在は確認できない。
+      // 代わりに実験・同意・コードの照合を片ごとに同じ条件で行う
+      match /chunks/{chunkId} {
+        allow create: if hasIdentityLink()
+          && request.resource.data.participantCode == myParticipantCode()
+          && request.resource.data.experimentId is string
+          && get(/databases/$(database)/documents/experiments/$(request.resource.data.experimentId)).data.status == 'open'
+          && get(/databases/$(database)/documents/consentRecords/$(request.resource.data.consentRecordId)).data.status == 'agreed'
+          && get(/databases/$(database)/documents/consentRecords/$(request.resource.data.consentRecordId)).data.participantCode == request.resource.data.participantCode
+          && request.resource.data.events.size() <= 10000;
+        allow get, list, update, delete: if isAdmin();
+      }
+    }
+  }
+}

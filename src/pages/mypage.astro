@@ -1,0 +1,92 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="マイページ">
+  <h1>マイページ</h1>
+  <p id="who"></p>
+
+  <h2>参加した実験と同意の状態</h2>
+  <p>
+    ここには同意の履歴が表示されます（実験のプレイデータそのものは表示されません）。
+    同意はここからいつでも撤回できます。撤回すると、その実験への新しいデータ送信は直ちに止まります。
+    すでに送信されたデータの取り扱いは、各実験の同意文書の記載に従います。
+  </p>
+  <div id="list"></div>
+  <p id="status"></p>
+
+  <p><button id="logout">ログアウト</button></p>
+
+  <script>
+    import { onAuthStateChanged, signOut } from 'firebase/auth';
+    import { collection, doc, getDoc, getDocs, query, updateDoc, where, serverTimestamp } from 'firebase/firestore';
+    import { initLabClient, getSessionState } from '@lab/client';
+    import { firebaseConfig, isConfigured } from '../firebase-config';
+
+    const status = document.getElementById('status')!;
+    const list = document.getElementById('list')!;
+
+    if (!isConfigured) {
+      status.textContent = 'Firebase の設定がまだ投入されていません。';
+    } else {
+      const { auth, db } = initLabClient(firebaseConfig);
+
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          status.textContent = 'ログインしていません。';
+          return;
+        }
+        document.getElementById('who')!.textContent = 'ログイン中: ' + (user.email ?? user.uid);
+        const state = await getSessionState();
+        if (!state.participantCode) {
+          status.textContent = '参加者コードの発行に失敗しました。';
+          return;
+        }
+        const q = query(collection(db, 'consentRecords'), where('participantCode', '==', state.participantCode));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          status.textContent = 'まだ参加した実験はありません。';
+          return;
+        }
+        for (const rec of snap.docs) {
+          const d = rec.data();
+          const expSnap = await getDoc(doc(db, 'experiments', d.experimentId));
+          const title = expSnap.exists() ? (expSnap.data().title ?? d.experimentId) : d.experimentId;
+          const el = document.createElement('div');
+          el.className = 'card';
+          const agreed = d.status === 'agreed';
+          el.innerHTML =
+            '<h3></h3>' +
+            '<p>同意した版: <a target="_blank" rel="noopener"></a></p>' +
+            '<p>状態: <strong></strong></p>';
+          el.querySelector('h3')!.textContent = title;
+          const link = el.querySelector('a')!;
+          link.href = '/consent/' + d.experimentId + '.json';
+          link.textContent = d.consentVersion;
+          el.querySelector('strong')!.textContent =
+            d.status === 'agreed' ? '同意中（ON）' :
+            d.status === 'withdrawal_requested' ? '撤回を申請済み（OFF）' : '撤回処理済み（OFF）';
+          if (agreed) {
+            const btn = document.createElement('button');
+            btn.textContent = '同意を撤回する';
+            btn.addEventListener('click', async () => {
+              if (!window.confirm('この実験への同意を撤回しますか？')) return;
+              await updateDoc(doc(db, 'consentRecords', rec.id), {
+                status: 'withdrawal_requested',
+                withdrawnAt: serverTimestamp(),
+              });
+              window.location.reload();
+            });
+            el.appendChild(btn);
+          }
+          list.appendChild(el);
+        }
+      });
+
+      document.getElementById('logout')!.addEventListener('click', async () => {
+        await signOut(auth);
+        window.location.href = '/';
+      });
+    }
+  </script>
+</Base>

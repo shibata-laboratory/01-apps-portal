@@ -1,0 +1,68 @@
+---
+import Base from '../layouts/Base.astro';
+import { catalog } from '../data/catalog';
+
+const typeLabel: Record<string, string> = { tool: 'ツール', game: 'ゲーム', experiment: '実験' };
+---
+
+<Base title="一覧">
+  <h1>ツール・ゲーム・実験</h1>
+  <p>
+    柴田研究室の Web アプリ置き場です。ツールとゲームは登録なしで使えます。
+    実験に参加する場合はアカウント登録と、実験ごとの同意が必要です。
+  </p>
+
+  <div id="static-catalog">
+    {catalog.map((item) => (
+      <div class="card">
+        <h3><a href={item.url}>{item.title}</a></h3>
+        <p>{item.description}</p>
+        <span class="badge">{typeLabel[item.type]}</span>
+        {item.requiresRegistration && <span class="badge">登録必須</span>}
+        {item.dataCollection === 'research' && <span class="badge">研究データ収集あり</span>}
+        {item.dataCollection === 'usage' && <span class="badge">利用データ収集あり</span>}
+      </div>
+    ))}
+  </div>
+
+  <div id="experiments"></div>
+  <p id="experiments-note"></p>
+
+  <script>
+    import { collection, getDocs, query, where } from 'firebase/firestore';
+    import { initLabClient } from '@lab/client';
+    import { firebaseConfig, isConfigured } from '../firebase-config';
+
+    const note = document.getElementById('experiments-note')!;
+    const box = document.getElementById('experiments')!;
+
+    if (!isConfigured) {
+      note.textContent = '実験一覧は準備中です。';
+    } else {
+      try {
+        const { db } = initLabClient(firebaseConfig);
+        const q = query(collection(db, 'experiments'), where('status', '==', 'open'));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          note.textContent = '現在、参加者を募集している実験はありません。';
+        }
+        snap.forEach((doc) => {
+          const d = doc.data();
+          const el = document.createElement('div');
+          el.className = 'card';
+          el.innerHTML =
+            '<h3></h3><p></p>' +
+            '<span class="badge exp">実験</span>' +
+            '<span class="badge">登録必須</span>' +
+            '<span class="badge">研究データ収集あり</span>';
+          el.querySelector('h3')!.textContent = d.title ?? doc.id;
+          el.querySelector('p')!.textContent = d.description ?? '';
+          box.appendChild(el);
+        });
+      } catch (e) {
+        note.textContent = '実験一覧の読み込みに失敗しました。';
+        console.error(e);
+      }
+    }
+  </script>
+</Base>
