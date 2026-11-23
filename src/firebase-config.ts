@@ -9,12 +9,10 @@
 // （規格 v0.1 の決定。デフォルトの firebaseapp.com には戻さない）。
 
 export const firebaseConfig = {
-apiKey: 'YOUR_API_KEY',
-authDomain: 'auth.shibata-lab.jp',
+apiKey: 'AIzaSyDe4aCzV_cJAeO61AEYEcKRvqUiYVijRy0',
+authDomain: 'shibata-lab-portal.firebaseapp.com',
 projectId: 'shibata-lab-portal',
-storageBucket: 'YOUR_STORAGE_BUCKET',
-messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-appId: 'YOUR_APP_ID',
+storageBucket: 'shibata-lab-portal.firebasestorage.app',
+messagingSenderId: '739004491737',
+appId: '1:739004491737:web:f729051e538b3140d29bc8',
 };
-
-export const isConfigured = firebaseConfig.apiKey!== 'YOUR_API_KEY';
