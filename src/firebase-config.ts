@@ -8,11 +8,14 @@
 // authDomain はカスタム認証ドメイン auth.shibata-lab.jp を使う
 // （規格 v0.1 の決定。デフォルトの firebaseapp.com には戻さない）。
 
+
 export const firebaseConfig = {
-apiKey: 'AIzaSyDe4aCzV_cJAeO61AEYEcKRvqUiYVijRy0',
-authDomain: 'shibata-lab-portal.firebaseapp.com',
-projectId: 'shibata-lab-portal',
-storageBucket: 'shibata-lab-portal.firebasestorage.app',
-messagingSenderId: '739004491737',
-appId: '1:739004491737:web:f729051e538b3140d29bc8',
+  apiKey: 'AIzaSyDe4aCzV_cJAeO61AEYEcKRvqUiYVijRy0',
+  authDomain: 'auth.shibata-lab.jp',
+  projectId: 'shibata-lab-portal',
+  storageBucket: 'shibata-lab-portal.firebasestorage.app',
+  messagingSenderId: '739004491737',
+  appId: '1:739004491737:web:f729051e538b3140d29bc8',
 };
+
+export const isConfigured = firebaseConfig.apiKey !== 'YOUR_API_KEY';
