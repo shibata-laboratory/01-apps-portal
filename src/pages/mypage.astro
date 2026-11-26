@@ -15,16 +15,79 @@ import Base from '../layouts/Base.astro';
   <div id="list"></div>
   <p id="status"></p>
 
+  <h2>アカウントの削除</h2>
+  <p>
+    アカウントを削除すると、ログイン情報とポータルに登録された個人情報が削除されます。
+    実験データの取り扱いは各実験の撤回可能期間によって異なります。手続きの画面で詳しく説明します。
+  </p>
+  <p><button id="delete-open">アカウント削除の手続きへ進む</button></p>
+  <div id="delete-panel" class="notice" hidden>
+    <h3>削除の前に、必ず確認してください</h3>
+    <ul>
+      <li>あなたのアカウント（ログイン情報）と、ポータルに登録された個人情報（あなたを参加者コードに対応づける記録や、登録時の設定など）は削除されます。</li>
+      <li>あわせて、<strong>撤回可能期間内</strong>にある実験については、参加の撤回として扱い、その実験データも削除の対象になります。対象の実験: <span id="delete-targets">（読み込み中）</span></li>
+      <li>撤回可能期間を<strong>過ぎた</strong>実験のデータは、同意文書の定めにより匿名化済みのものとして保持され、削除の対象にはなりません。</li>
+      <li>削除が完了した後は、あなたのデータを特定できなくなるため、個別の開示・削除などの請求には応じられなくなります。</li>
+      <li>この操作は取り消せません。再び利用する場合は新しいアカウントとして登録され、以前の参加記録とは結びつきません。</li>
+      <li>データベースに残るデータの削除は、申請を受けた管理者が後日実行します（申請の記録自体は、この手続きで直ちに行われます）。</li>
+    </ul>
+    <p>
+      <label>
+        <input type="checkbox" id="delete-understand" />
+        上記の内容を理解しました
+      </label>
+    </p>
+    <p>
+      本人確認のため、再ログインが必要です。
+      <button id="reauth">本人確認（再ログイン）を行う</button>
+      <span id="reauth-status"></span>
+    </p>
+    <p>
+      <button id="delete-exec" disabled>アカウントを削除する</button>
+      <button id="delete-cancel">やめる</button>
+    </p>
+    <p id="delete-status"></p>
+  </div>
+
   <p><button id="logout">ログアウト</button></p>
 
   <script>
-    import { onAuthStateChanged, signOut } from 'firebase/auth';
-    import { collection, doc, getDoc, getDocs, query, updateDoc, where, serverTimestamp } from 'firebase/firestore';
+    import {
+      onAuthStateChanged,
+      signOut,
+      deleteUser,
+      reauthenticateWithPopup,
+      GoogleAuthProvider,
+      sendSignInLinkToEmail,
+      type User,
+    } from 'firebase/auth';
+    import {
+      collection,
+      doc,
+      addDoc,
+      getDoc,
+      getDocs,
+      query,
+      updateDoc,
+      where,
+      serverTimestamp,
+    } from 'firebase/firestore';
     import { initLabClient, getSessionState } from '@lab/client';
     import { firebaseConfig, isConfigured } from '../firebase-config';
 
     const status = document.getElementById('status')!;
     const list = document.getElementById('list')!;
+
+    interface ConsentInfo {
+      recordId: string;
+      experimentId: string;
+      title: string;
+      status: string;
+      /** 撤回可能期間の残り。true=期間内、false=期間終了、null=判定できない（同意文書に日数の定めがない等） */
+      inWindow: boolean | null;
+      remainingDays: number | null;
+      deadline: Date | null;
+    }
 
     if (!isConfigured) {
       status.textContent = 'Firebase の設定がまだ投入されていません。';
@@ -42,16 +105,48 @@ import Base from '../layouts/Base.astro';
           status.textContent = '参加者コードの発行に失敗しました。';
           return;
         }
-        const q = query(collection(db, 'consentRecords'), where('participantCode', '==', state.participantCode));
+        const participantCode = state.participantCode;
+        const consents: ConsentInfo[] = [];
+        const q = query(collection(db, 'consentRecords'), where('participantCode', '==', participantCode));
         const snap = await getDocs(q);
         if (snap.empty) {
           status.textContent = 'まだ参加した実験はありません。';
-          return;
         }
         for (const rec of snap.docs) {
           const d = rec.data();
           const expSnap = await getDoc(doc(db, 'experiments', d.experimentId));
           const title = expSnap.exists() ? (expSnap.data().title ?? d.experimentId) : d.experimentId;
+
+          // 撤回可能期間は同意文書 JSON の withdrawalWindowDays と同意日時から計算する（規格 14.4）
+          let inWindow: boolean | null = null;
+          let remainingDays: number | null = null;
+          let deadline: Date | null = null;
+          const agreedAt: Date | null =
+            d.agreedAt && typeof d.agreedAt.toDate === 'function' ? d.agreedAt.toDate() : null;
+          try {
+            const res = await fetch('/consent/' + d.experimentId + '.json', { cache: 'no-store' });
+            if (res.ok) {
+              const docJson = await res.json();
+              const days = typeof docJson.withdrawalWindowDays === 'number' ? docJson.withdrawalWindowDays : null;
+              if (days !== null && agreedAt) {
+                deadline = new Date(agreedAt.getTime() + days * 24 * 60 * 60 * 1000);
+                inWindow = deadline.getTime() > Date.now();
+                remainingDays = Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+              }
+            }
+          } catch {
+            // 同意文書が取得できない場合は期間を判定できないものとして扱う
+          }
+          consents.push({
+            recordId: rec.id,
+            experimentId: d.experimentId,
+            title,
+            status: d.status,
+            inWindow,
+            remainingDays,
+            deadline,
+          });
+
           const el = document.createElement('div');
           el.className = 'card';
           const agreed = d.status === 'agreed';
@@ -66,6 +161,14 @@ import Base from '../layouts/Base.astro';
           el.querySelector('strong')!.textContent =
             d.status === 'agreed' ? '同意中（ON）' :
             d.status === 'withdrawal_requested' ? '撤回を申請済み（OFF）' : '撤回処理済み（OFF）';
+          if (agreed && inWindow !== null && deadline) {
+            const wp = document.createElement('p');
+            wp.textContent = inWindow
+              ? 'データ削除を伴う撤回の受付期間: あと約' + remainingDays + '日（' +
+                deadline.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }) + 'まで）'
+              : 'データ削除を伴う撤回の受付期間は終了しています。以後のデータは匿名化済みのものとして保持されます。';
+            el.appendChild(wp);
+          }
           if (agreed) {
             const btn = document.createElement('button');
             btn.textContent = '同意を撤回する';
@@ -81,7 +184,124 @@ import Base from '../layouts/Base.astro';
           }
           list.appendChild(el);
         }
+
+        setupDeletion(user, participantCode, consents);
       });
+
+      // ------------------------------------------------------------------
+      // アカウント削除フロー（規格 14.2 / 14.6）
+      // 実行順序: 再認証 → deletionRequests の作成（対応表が存在する間に
+      // 行う必要がある）→ 期間内の同意を撤回申請に変更 → Auth アカウント削除。
+      // Firestore 側のデータ削除は管理用スクリプトが申請に基づき非同期に行う。
+      // ------------------------------------------------------------------
+      function setupDeletion(user: User, participantCode: string, consents: ConsentInfo[]) {
+        const openBtn = document.getElementById('delete-open')!;
+        const panel = document.getElementById('delete-panel')!;
+        const targets = document.getElementById('delete-targets')!;
+        const understand = document.getElementById('delete-understand') as HTMLInputElement;
+        const reauthBtn = document.getElementById('reauth') as HTMLButtonElement;
+        const reauthStatus = document.getElementById('reauth-status')!;
+        const execBtn = document.getElementById('delete-exec') as HTMLButtonElement;
+        const cancelBtn = document.getElementById('delete-cancel')!;
+        const delStatus = document.getElementById('delete-status')!;
+
+        // 削除に伴いデータも削除対象になる実験（同意中で、期間内または期間を判定できないもの）
+        const targetsList = consents.filter((c) => c.status === 'agreed' && c.inWindow !== false);
+        targets.textContent = targetsList.length
+          ? targetsList
+              .map((c) => c.title + (c.remainingDays !== null ? '（あと約' + c.remainingDays + '日）' : ''))
+              .join('、')
+          : 'なし';
+
+        let reauthed = false;
+        const refreshExec = () => {
+          execBtn.disabled = !(understand.checked && reauthed);
+        };
+        understand.addEventListener('change', refreshExec);
+
+        // ログイン直後（10分以内）であれば再認証済みとして扱う
+        const lastSignIn = user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).getTime() : 0;
+        if (Date.now() - lastSignIn < 10 * 60 * 1000) {
+          reauthed = true;
+          reauthBtn.disabled = true;
+          reauthStatus.textContent = 'ログイン直後のため、本人確認は完了しています。';
+        }
+
+        openBtn.addEventListener('click', () => {
+          panel.hidden = false;
+          openBtn.style.display = 'none';
+        });
+        cancelBtn.addEventListener('click', () => {
+          panel.hidden = true;
+          openBtn.style.display = '';
+        });
+
+        reauthBtn.addEventListener('click', async () => {
+          const providers = user.providerData.map((p) => p.providerId);
+          try {
+            if (providers.includes('google.com')) {
+              await reauthenticateWithPopup(user, new GoogleAuthProvider());
+              reauthed = true;
+              reauthBtn.disabled = true;
+              reauthStatus.textContent = '本人確認が完了しました。';
+              refreshExec();
+            } else if (user.email) {
+              // メールリンク方式には再認証 API がないため、新しいログインリンクで
+              // ログインし直してもらう（ログイン直後は上記の判定で確認済みになる）
+              await sendSignInLinkToEmail(auth, user.email, {
+                url: window.location.origin + '/login/',
+                handleCodeInApp: true,
+              });
+              window.localStorage.setItem('labPortalEmail', user.email);
+              reauthStatus.textContent =
+                '新しいログイン用リンクをメールで送りました。リンクを開いてログインし直してから、このページに戻って削除を実行してください。';
+            } else {
+              reauthStatus.textContent = '再認証の方法を特定できませんでした。いったんログアウトしてログインし直してください。';
+            }
+          } catch (e: any) {
+            reauthStatus.textContent = '本人確認に失敗しました: ' + e.message;
+          }
+        });
+
+        execBtn.addEventListener('click', async () => {
+          if (!window.confirm('本当にアカウントを削除しますか？ この操作は取り消せません。')) return;
+          execBtn.disabled = true;
+          reauthBtn.disabled = true;
+          try {
+            // 1. 削除申請を記録する（対応表が存在し、ログイン中である間に作成する）
+            delStatus.textContent = '削除申請を記録しています…';
+            await addDoc(collection(db, 'deletionRequests'), {
+              uid: user.uid,
+              participantCode,
+              status: 'requested',
+              requestedAt: serverTimestamp(),
+            });
+            // 2. 期間内の同意を撤回申請に変更する（期間を判定できないものも保守的に含める）
+            for (const c of targetsList) {
+              await updateDoc(doc(db, 'consentRecords', c.recordId), {
+                status: 'withdrawal_requested',
+                withdrawnAt: serverTimestamp(),
+              });
+            }
+            // 3. Authentication のアカウントを削除する
+            delStatus.textContent = 'アカウントを削除しています…';
+            await deleteUser(user);
+            panel.innerHTML =
+              '<h3>アカウントを削除しました</h3>' +
+              '<p>データベースに残るデータの削除は、管理者が申請を確認して実行します。ご協力ありがとうございました。</p>';
+            setTimeout(() => { window.location.href = '/'; }, 5000);
+          } catch (e: any) {
+            if (e && e.code === 'auth/requires-recent-login') {
+              delStatus.textContent =
+                '削除申請は記録しましたが、アカウント本体の削除にはログインし直しが必要です。' +
+                'いったんログアウトしてログインし直し、もう一度この手続きを実行してください（申請が重複しても処理に問題はありません）。';
+            } else {
+              delStatus.textContent = '削除に失敗しました: ' + (e?.message ?? e);
+            }
+            execBtn.disabled = false;
+          }
+        });
+      }
 
       document.getElementById('logout')!.addEventListener('click', async () => {
         await signOut(auth);
