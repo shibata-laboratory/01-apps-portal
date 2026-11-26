@@ -29,7 +29,7 @@ import Base from '../layouts/Base.astro';
       <li>撤回可能期間を<strong>過ぎた</strong>実験のデータは、同意文書の定めにより匿名化済みのものとして保持され、削除の対象にはなりません。</li>
       <li>削除が完了した後は、あなたのデータを特定できなくなるため、個別の開示・削除などの請求には応じられなくなります。</li>
       <li>この操作は取り消せません。再び利用する場合は新しいアカウントとして登録され、以前の参加記録とは結びつきません。</li>
-      <li>データベースに残るデータの削除は、申請を受けた管理者が後日実行します（申請の記録自体は、この手続きで直ちに行われます）。</li>
+      <li>データベースに残るデータの削除は、申請と同時に自動で処理が開始されます（通常は短時間で完了します）。万一処理に失敗した場合は、管理者が申請を確認して対応します。</li>
     </ul>
     <p>
       <label>
@@ -194,9 +194,13 @@ import Base from '../layouts/Base.astro';
 
       // ------------------------------------------------------------------
       // アカウント削除フロー（規格 14.2 / 14.6）
-      // 実行順序: 再認証 → deletionRequests の作成（対応表が存在する間に
-      // 行う必要がある）→ 期間内の同意を撤回申請に変更 → Auth アカウント削除。
-      // Firestore 側のデータ削除は管理用スクリプトが申請に基づき非同期に行う。
+      // 実行順序: 再認証 → 期間内の同意を撤回申請に変更 → deletionRequests
+      // の作成 → Auth アカウント削除。
+      // deletionRequests の作成が Cloud Functions のトリガーになり、
+      // Firestore 側のデータ削除はサーバー側で即時に実行される。そのため
+      // 申請の作成は、対応表を参照する他の操作がすべて終わった後に行う
+      // （Function が対応表を破棄すると、同意の変更等ができなくなるため）。
+      // 処理に失敗した申請は管理用スクリプトが後から拾って再処理できる。
       // ------------------------------------------------------------------
       function setupDeletion(user: User, participantCode: string, consents: ConsentInfo[]) {
         const openBtn = document.getElementById('delete-open')!;
@@ -272,7 +276,17 @@ import Base from '../layouts/Base.astro';
           execBtn.disabled = true;
           reauthBtn.disabled = true;
           try {
-            // 1. 削除申請を記録する（対応表が存在し、ログイン中である間に作成する）
+            // 1. 期間内の同意を撤回申請に変更する（期間を判定できないものも保守的に含める）
+            delStatus.textContent = '参加中の実験の撤回手続きを行っています…';
+            for (const c of targetsList) {
+              await updateDoc(doc(db, 'consentRecords', c.recordId), {
+                status: 'withdrawal_requested',
+                withdrawnAt: serverTimestamp(),
+              });
+            }
+            // 2. 削除申請を記録する（この作成がサーバー側の削除処理のトリガーになる。
+            //    ルール上、申請の作成には対応表が存在する必要があるため、
+            //    対応表を使う操作の後に行う）
             delStatus.textContent = '削除申請を記録しています…';
             await addDoc(collection(db, 'deletionRequests'), {
               uid: user.uid,
@@ -280,20 +294,19 @@ import Base from '../layouts/Base.astro';
               status: 'requested',
               requestedAt: serverTimestamp(),
             });
-            // 2. 期間内の同意を撤回申請に変更する（期間を判定できないものも保守的に含める）
-            for (const c of targetsList) {
-              await updateDoc(doc(db, 'consentRecords', c.recordId), {
-                status: 'withdrawal_requested',
-                withdrawnAt: serverTimestamp(),
-              });
-            }
             // 3. Authentication のアカウントを削除する
+            //    サーバー側の処理が先に Auth アカウントを削除していた場合は
+            //    user-not-found になるが、その場合は削除済みとして扱う
             delStatus.textContent = 'アカウントを削除しています…';
-            await deleteUser(user);
+            try {
+              await deleteUser(user);
+            } catch (e: any) {
+              if (!(e && e.code === 'auth/user-not-found')) throw e;
+            }
             document.getElementById('logout')!.style.display = 'none';
             panel.innerHTML =
               '<h3>アカウントを削除しました</h3>' +
-              '<p>データベースに残るデータの削除は、管理者が申請を確認して実行します。ご協力ありがとうございました。</p>';
+              '<p>データベースに残るデータの削除処理も開始されています。ご協力ありがとうございました。</p>';
             setTimeout(() => { window.location.href = '/'; }, 5000);
           } catch (e: any) {
             if (e && e.code === 'auth/requires-recent-login') {
