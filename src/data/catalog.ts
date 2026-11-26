@@ -13,14 +13,13 @@ export type CatalogItem = {
 };
 
 export const catalog: CatalogItem[] = [
-  // 例：
-  // {
-  //   id: 'timer',
-  //   type: 'tool',
-  //   title: 'タイマー',
-  //   description: '授業や実験で使えるシンプルなタイマー',
-  //   url: '/tools/timer/',
-  //   requiresRegistration: false,
-  //   dataCollection: 'none',
-  // },
+  {
+    id: 'timer',
+    type: 'tool',
+    title: 'プレゼンタイマー',
+    description: '発表時間とベル（1〜3回）を設定できる発表用タイマー',
+    url: '/tools/timer/',
+    requiresRegistration: false,
+    dataCollection: 'none',
+  },
 ];

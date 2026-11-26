@@ -1,0 +1,492 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+
+<Base title="プレゼンタイマー">
+  <p><a href="/">← 一覧に戻る</a></p>
+  <h1>プレゼンタイマー</h1>
+  <p>
+    研究室のセミナーや学会発表で使う、ベル付きの発表用タイマーです。
+    発表時間とベルの時刻を設定し、スタートすると設定時刻にベルが鳴ります（手動でも鳴らせます）。
+    登録なしで使えます。設定はこのページの中だけで使われ、どこにも送信されません。
+  </p>
+
+  <div class="stage" id="stage" data-theme="light">
+    <div class="stage-tools">
+      <div class="seg" role="group" aria-label="配色">
+        <button type="button" id="theme-light" aria-pressed="true">白背景</button>
+        <button type="button" id="theme-dark" aria-pressed="false">黒背景</button>
+      </div>
+      <button type="button" id="fullscreen">全画面</button>
+    </div>
+
+    <p class="main-label" id="main-label">残り時間</p>
+    <div class="main-display" id="main-display" role="timer" aria-label="メイン表示">10:00</div>
+    <p class="sub-row">
+      <span>経過 <span id="elapsed" class="sub-num">00:00</span></span>
+      <span>残り <span id="remaining" class="sub-num">10:00</span></span>
+    </p>
+    <p class="state" id="state" aria-live="polite">時間を設定してスタートしてください</p>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <button type="button" id="toggle" class="primary">スタート</button>
+      <button type="button" id="reset">リセット</button>
+    </div>
+
+    <div id="settings">
+      <label class="pres-time">
+        発表時間
+        <input type="number" id="pres-min" min="1" max="999" step="1" value="10" inputmode="numeric" />
+        分
+      </label>
+
+      <table class="bells">
+        <thead>
+          <tr><th>ベル</th><th>使う</th><th>時刻</th><th>基準</th><th>手動</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>ベル1回</th>
+            <td><input type="checkbox" id="bell1-enabled" checked aria-label="ベル1回を使う" /></td>
+            <td><input type="number" id="bell1-min" min="0" max="999" step="1" value="8" inputmode="numeric" aria-label="ベル1回の時刻（分）" /> 分</td>
+            <td>
+              <select id="bell1-mode" aria-label="ベル1回の基準">
+                <option value="elapsed" selected>経過</option>
+                <option value="remaining">残り</option>
+              </select>
+            </td>
+            <td><button type="button" class="manual" data-bell="1">鳴らす</button></td>
+          </tr>
+          <tr>
+            <th>ベル2回</th>
+            <td><input type="checkbox" id="bell2-enabled" checked aria-label="ベル2回を使う" /></td>
+            <td><input type="number" id="bell2-min" min="0" max="999" step="1" value="10" inputmode="numeric" aria-label="ベル2回の時刻（分）" /> 分</td>
+            <td>
+              <select id="bell2-mode" aria-label="ベル2回の基準">
+                <option value="elapsed" selected>経過</option>
+                <option value="remaining">残り</option>
+              </select>
+            </td>
+            <td><button type="button" class="manual" data-bell="2">鳴らす</button></td>
+          </tr>
+          <tr>
+            <th>ベル3回</th>
+            <td><input type="checkbox" id="bell3-enabled" checked aria-label="ベル3回を使う" /></td>
+            <td><input type="number" id="bell3-min" min="0" max="999" step="1" value="15" inputmode="numeric" aria-label="ベル3回の時刻（分）" /> 分</td>
+            <td>
+              <select id="bell3-mode" aria-label="ベル3回の基準">
+                <option value="elapsed" selected>経過</option>
+                <option value="remaining">残り</option>
+              </select>
+            </td>
+            <td><button type="button" class="manual" data-bell="3">鳴らす</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <label class="main-choice">
+        メイン表示
+        <select id="main-mode">
+          <option value="remaining" selected>残り時間</option>
+          <option value="elapsed">経過時間</option>
+        </select>
+      </label>
+      <p class="note">
+        ベルは「経過○分」または「残り○分」で鳴らす時刻を設定できます。
+        発表時間を過ぎても計測は続き、残り時間はマイナス（赤字）で表示されます。
+        計測を始めるまで設定を変更できます（変更するにはリセットしてください）。
+      </p>
+    </div>
+  </div>
+
+  <style>
+    /* 表示エリア（ステージ）の配色は2種切替。それ以外の色は当面 www の
+       パレット（Intellectual Café）と同値をページ内に定義する
+       （ツール作成ガイド参照） */
+    .stage {
+      --s-bg: #ffffff;
+      --s-text: #111111;
+      --s-muted: #555555;
+      --s-border: #d8ddd7;
+      --s-over: #c62828;
+      background: var(--s-bg);
+      color: var(--s-text);
+      border: 1px solid var(--s-border);
+      border-radius: 12px;
+      padding: 16px 20px 24px;
+      text-align: center;
+      margin: 24px auto 16px;
+    }
+    .stage[data-theme='dark'] {
+      --s-bg: #000000;
+      --s-text: #ffffff;
+      --s-muted: #bdbdbd;
+      --s-border: #333333;
+      --s-over: #ff8a80;
+    }
+    .stage:fullscreen {
+      border: none;
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .stage-tools {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .stage-tools button {
+      background: transparent;
+      color: var(--s-muted);
+      border: 1px solid var(--s-border);
+      border-radius: 999px;
+      padding: 4px 14px;
+      font-size: 14px;
+    }
+    .stage-tools .seg { display: flex; gap: 6px; }
+    .stage-tools button[aria-pressed='true'] {
+      color: var(--s-text);
+      border-color: var(--s-text);
+      font-weight: 700;
+    }
+    .main-label { color: var(--s-muted); font-size: 20px; margin: 12px 0 0; }
+    .main-display {
+      font-size: clamp(76px, 17vw, 168px);
+      font-weight: 700;
+      line-height: 1.05;
+      font-variant-numeric: tabular-nums;
+      margin: 4px 0;
+    }
+    .stage:fullscreen .main-display { font-size: clamp(96px, 24vw, 300px); }
+    .main-display.overtime, .sub-num.overtime { color: var(--s-over); }
+    .sub-row {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      color: var(--s-muted);
+      font-size: clamp(20px, 4.5vw, 34px);
+      margin: 4px 0;
+    }
+    .sub-num { color: var(--s-text); font-variant-numeric: tabular-nums; font-weight: 600; }
+    .state { color: var(--s-muted); min-height: 1.5em; margin: 8px 0 0; }
+    .stage.flash { outline: 4px solid var(--s-over); outline-offset: -4px; }
+
+    .panel {
+      --brand: #284b47;
+      --accent: #42766d;
+      --text: #24342f;
+      --muted: #5a5a5a;
+      --border: #d8ddd7;
+      --surface: #ffffff;
+      max-width: 640px;
+      margin: 0 auto;
+      color: var(--text);
+    }
+    .controls { display: flex; gap: 12px; justify-content: center; margin: 8px 0 20px; }
+    .controls button { font-size: 18px; padding: 10px 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); }
+    .controls button.primary { background: var(--brand); border-color: var(--brand); color: #f7f4ee; }
+    .pres-time { display: block; font-size: 18px; margin-bottom: 16px; }
+    .panel input[type='number'] {
+      width: 72px;
+      font-size: 17px;
+      padding: 6px 8px;
+      text-align: right;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .panel select { font-size: 16px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .bells { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    .bells th, .bells td { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; font-size: 16px; }
+    .bells thead th { color: var(--muted); font-weight: 600; font-size: 14px; }
+    .bells .manual { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 5px 14px; font-size: 14px; }
+    .bells .manual:hover { border-color: var(--accent); color: var(--brand); }
+    .main-choice { display: block; font-size: 16px; margin-bottom: 12px; }
+    .note { color: var(--muted); font-size: 14px; line-height: 1.6; }
+    #settings.locked { opacity: 0.55; }
+    #settings.locked .manual { opacity: 1; }
+    @media (max-width: 480px) {
+      .bells th, .bells td { font-size: 14px; padding: 8px 3px; }
+      .panel input[type='number'] { width: 56px; }
+      .sub-row { gap: 18px; }
+    }
+  </style>
+
+  <script>
+    const stage = document.getElementById('stage')!;
+    const mainLabel = document.getElementById('main-label')!;
+    const mainDisplay = document.getElementById('main-display')!;
+    const elapsedEl = document.getElementById('elapsed')!;
+    const remainingEl = document.getElementById('remaining')!;
+    const stateEl = document.getElementById('state')!;
+    const toggleBtn = document.getElementById('toggle') as HTMLButtonElement;
+    const resetBtn = document.getElementById('reset') as HTMLButtonElement;
+    const settingsEl = document.getElementById('settings')!;
+    const presMinInput = document.getElementById('pres-min') as HTMLInputElement;
+    const mainModeSel = document.getElementById('main-mode') as HTMLSelectElement;
+
+    type Bell = {
+      n: number;
+      enabled: HTMLInputElement;
+      min: HTMLInputElement;
+      mode: HTMLSelectElement;
+      fired: boolean;
+    };
+    const bells: Bell[] = [1, 2, 3].map((n) => ({
+      n,
+      enabled: document.getElementById('bell' + n + '-enabled') as HTMLInputElement,
+      min: document.getElementById('bell' + n + '-min') as HTMLInputElement,
+      mode: document.getElementById('bell' + n + '-mode') as HTMLSelectElement,
+      fired: false,
+    }));
+
+    const baseTitle = document.title;
+    let totalMs = 10 * 60 * 1000; // 発表時間
+    let baseElapsed = 0; // 一時停止までに累積した経過時間
+    let startedAt = 0; // 現在の計測区間の開始時刻
+    let running = false;
+    let active = false; // スタート済み（リセットまで設定をロックする）
+    let timerId: number | null = null;
+    let prevRemaining = totalMs;
+    let wakeLock: any = null;
+    let audioCtx: AudioContext | null = null;
+
+    function clampMinutes(input: HTMLInputElement, min: number): number {
+      const v = Math.floor(Number(input.value));
+      if (Number.isNaN(v)) return min;
+      return Math.min(999, Math.max(min, v));
+    }
+
+    function getElapsed(): number {
+      return baseElapsed + (running ? Date.now() - startedAt : 0);
+    }
+
+    function fmtElapsed(ms: number): string {
+      const totalSec = Math.floor(Math.max(0, ms) / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function fmtRemaining(ms: number): string {
+      const sign = ms < 0 ? '-' : '';
+      const totalSec = Math.ceil(Math.abs(ms) / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return sign + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function render() {
+      const elapsed = getElapsed();
+      const remaining = totalMs - elapsed;
+      const elapsedText = fmtElapsed(elapsed);
+      const remainingText = fmtRemaining(remaining);
+      elapsedEl.textContent = elapsedText;
+      remainingEl.textContent = remainingText;
+      const over = remaining < 0;
+      remainingEl.classList.toggle('overtime', over);
+      const mainIsRemaining = mainModeSel.value !== 'elapsed';
+      mainLabel.textContent = mainIsRemaining ? '残り時間' : '経過時間';
+      mainDisplay.textContent = mainIsRemaining ? remainingText : elapsedText;
+      mainDisplay.classList.toggle('overtime', mainIsRemaining && over);
+      document.title = active
+        ? mainDisplay.textContent + ' | プレゼンタイマー | Shibata Lab Apps'
+        : baseTitle;
+    }
+
+    function ensureAudio(): AudioContext | null {
+      try {
+        if (!audioCtx) audioCtx = new AudioContext();
+        if (audioCtx.state === 'suspended') void audioCtx.resume();
+        return audioCtx;
+      } catch {
+        return null;
+      }
+    }
+
+    // ベル音: 倍音を持つ正弦波の減衰で鐘の音を合成する
+    function ring(count: number) {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const strike = (startAt: number) => {
+        [1567.98, 2637.02].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const peak = i === 0 ? 0.22 : 0.07;
+          gain.gain.setValueAtTime(0.0001, startAt);
+          gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.9);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(startAt);
+          osc.stop(startAt + 1.0);
+        });
+      };
+      const t = ctx.currentTime + 0.05;
+      for (let i = 0; i < count; i++) strike(t + i * 0.85);
+      if ('vibrate' in navigator) navigator.vibrate?.(200);
+    }
+
+    function fireBell(bell: Bell) {
+      bell.fired = true;
+      ring(bell.n);
+      const minutes = clampMinutes(bell.min, 0);
+      stateEl.textContent =
+        'ベル' + bell.n + '回（' + (bell.mode.value === 'elapsed' ? '経過' : '残り') + minutes + '分）';
+      stage.classList.add('flash');
+      window.setTimeout(() => stage.classList.remove('flash'), 1200);
+    }
+
+    function checkBells() {
+      const elapsed = getElapsed();
+      const remaining = totalMs - elapsed;
+      for (const bell of bells) {
+        if (bell.fired || !bell.enabled.checked) continue;
+        const threshold = clampMinutes(bell.min, 0) * 60 * 1000;
+        if (threshold <= 0) continue;
+        if (bell.mode.value === 'elapsed') {
+          if (elapsed >= threshold) fireBell(bell);
+        } else {
+          if (remaining <= threshold && prevRemaining > threshold) fireBell(bell);
+        }
+      }
+      prevRemaining = remaining;
+    }
+
+    function tick() {
+      checkBells();
+      render();
+    }
+
+    function stopInterval() {
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    }
+
+    async function requestWakeLock() {
+      try {
+        wakeLock = await (navigator as any).wakeLock?.request('screen');
+      } catch {
+        // Wake Lock が使えない環境では何もしない（タイマーは動く）
+      }
+    }
+
+    function releaseWakeLock() {
+      try {
+        wakeLock?.release();
+      } catch {
+        // 既に解放済みの場合などは無視する
+      }
+      wakeLock = null;
+    }
+
+    function setSettingsLocked(locked: boolean) {
+      settingsEl.classList.toggle('locked', locked);
+      presMinInput.disabled = locked;
+      for (const bell of bells) {
+        bell.enabled.disabled = locked;
+        bell.min.disabled = locked;
+        bell.mode.disabled = locked;
+      }
+      // メイン表示の切替と手動ベルは計測中も使える
+    }
+
+    function readSettings() {
+      totalMs = clampMinutes(presMinInput, 1) * 60 * 1000;
+      presMinInput.value = String(clampMinutes(presMinInput, 1));
+      for (const bell of bells) bell.min.value = String(clampMinutes(bell.min, 0));
+    }
+
+    function start() {
+      ensureAudio();
+      if (!active) {
+        readSettings();
+        baseElapsed = 0;
+        prevRemaining = totalMs;
+        for (const bell of bells) bell.fired = false;
+        active = true;
+        setSettingsLocked(true);
+      }
+      running = true;
+      startedAt = Date.now();
+      stopInterval();
+      timerId = window.setInterval(tick, 100);
+      toggleBtn.textContent = '一時停止';
+      stateEl.textContent = '計測中…';
+      requestWakeLock();
+      render();
+    }
+
+    function pause() {
+      baseElapsed = getElapsed();
+      running = false;
+      stopInterval();
+      toggleBtn.textContent = '再開';
+      stateEl.textContent = '一時停止中';
+      releaseWakeLock();
+      render();
+    }
+
+    function reset() {
+      running = false;
+      active = false;
+      stopInterval();
+      releaseWakeLock();
+      baseElapsed = 0;
+      for (const bell of bells) bell.fired = false;
+      setSettingsLocked(false);
+      readSettings();
+      prevRemaining = totalMs;
+      toggleBtn.textContent = 'スタート';
+      stateEl.textContent = '時間を設定してスタートしてください';
+      render();
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (running) pause();
+      else start();
+    });
+    resetBtn.addEventListener('click', reset);
+    mainModeSel.addEventListener('change', render);
+    presMinInput.addEventListener('change', () => {
+      if (!active) reset();
+    });
+    bells.forEach((bell) => {
+      bell.min.addEventListener('change', () => {
+        if (!active) bell.min.value = String(clampMinutes(bell.min, 0));
+      });
+    });
+    document.querySelectorAll('.manual').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const n = Number((btn as HTMLElement).dataset.bell ?? 1);
+        ring(n);
+        stateEl.textContent = 'ベル' + n + '回（手動）';
+      });
+    });
+
+    const lightBtn = document.getElementById('theme-light') as HTMLButtonElement;
+    const darkBtn = document.getElementById('theme-dark') as HTMLButtonElement;
+    function setTheme(theme: string) {
+      stage.dataset.theme = theme;
+      lightBtn.setAttribute('aria-pressed', String(theme === 'light'));
+      darkBtn.setAttribute('aria-pressed', String(theme === 'dark'));
+    }
+    lightBtn.addEventListener('click', () => setTheme('light'));
+    darkBtn.addEventListener('click', () => setTheme('dark'));
+    document.getElementById('fullscreen')!.addEventListener('click', () => {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void stage.requestFullscreen?.();
+    });
+
+    // 初期表示（発表時間10分、ベル 8分/10分/15分・経過基準）
+    readSettings();
+    render();
+  </script>
+</Base>
