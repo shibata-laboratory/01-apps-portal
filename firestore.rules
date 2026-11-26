@@ -1,11 +1,13 @@
 rules_version = '2';
 
-// 統一規格 v0.1 第8章の実装版ルール（v0.2）。
+// 統一規格 v0.1 第8章の実装版ルール（v0.3）。
 // 前提:
 // - 管理者（柴田）は admins/{uid} 文書の存在で判定する。初回にコンソールで
 //   柴田の UID の文書を admins コレクションへ手動作成すること。
 // - 本ルールは Emulator による自動テスト（規格 第13章）で検証してから
 //   本番へ適用する。未検証のまま適用しないこと。
+// - 検証状況: 2026-11-23 に v0.2 の全25ケースが合格。2026-11-26 に v0.3
+//   （deletionRequests を追加、規格 第14章）の全31ケースが合格した。
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -83,6 +85,21 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['status', 'withdrawnAt']));
       allow delete: if isAdmin();
+    }
+
+    // 削除申請（規格 14.6）: 作成は本人のみ。自分の uid と自分の参加者コードを
+    // 持ち、status は 'requested' でなければならない。読み取り・更新・削除は
+    // 管理者のみ（処理は管理用スクリプトが対応表を参照して非同期に行う）。
+    // 申請の作成は対応表が存在する間に行うこと（アカウント削除フローの順序）。
+    match /deletionRequests/{requestId} {
+      allow create: if hasIdentityLink()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.participantCode == myParticipantCode()
+        && request.resource.data.status == 'requested'
+        && request.resource.data.requestedAt == request.time
+        && request.resource.data.keys().hasOnly(
+          ['uid', 'participantCode', 'status', 'requestedAt']);
+      allow get, list, update, delete: if isAdmin();
     }
 
     // セッション作成時の整合性検証（規格 8章）:
