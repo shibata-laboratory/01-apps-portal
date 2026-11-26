@@ -97,6 +97,10 @@ import Base from '../layouts/Base.astro';
       onAuthStateChanged(auth, async (user) => {
         if (!user) {
           status.textContent = 'ログインしていません。';
+          // 未ログイン（アカウント削除直後を含む）では操作ボタンを出さない
+          document.getElementById('logout')!.style.display = 'none';
+          document.getElementById('delete-open')!.style.display = 'none';
+          document.getElementById('delete-panel')!.hidden = true;
           return;
         }
         document.getElementById('who')!.textContent = 'ログイン中: ' + (user.email ?? user.uid);
@@ -286,6 +290,7 @@ import Base from '../layouts/Base.astro';
             // 3. Authentication のアカウントを削除する
             delStatus.textContent = 'アカウントを削除しています…';
             await deleteUser(user);
+            document.getElementById('logout')!.style.display = 'none';
             panel.innerHTML =
               '<h3>アカウントを削除しました</h3>' +
               '<p>データベースに残るデータの削除は、管理者が申請を確認して実行します。ご協力ありがとうございました。</p>';
