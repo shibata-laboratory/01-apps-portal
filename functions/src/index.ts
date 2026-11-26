@@ -126,10 +126,17 @@ function createStore(): Store {
     },
 
     async updateDeletionRequest(requestId, patch) {
-      await db
-        .collection('deletionRequests')
-        .doc(requestId)
-        .update({ ...patch, processedAt: FieldValue.serverTimestamp() });
+      const { scrubIdentifiers, ...rest } = patch;
+      const update: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+        ...rest,
+        processedAt: FieldValue.serverTimestamp(),
+      };
+      if (scrubIdentifiers) {
+        // 対応表の破棄後は、申請文書にも uid と参加者コードのペアを残さない
+        update.uid = FieldValue.delete();
+        update.participantCode = FieldValue.delete();
+      }
+      await db.collection('deletionRequests').doc(requestId).update(update);
     },
   };
 }

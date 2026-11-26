@@ -53,7 +53,13 @@ function makeStore(seed) {
       return 'deleted';
     },
     async updateDeletionRequest(id, patch) {
-      Object.assign(state.requests.get(id), patch);
+      const target = state.requests.get(id);
+      const { scrubIdentifiers, ...rest } = patch;
+      Object.assign(target, rest);
+      if (scrubIdentifiers) {
+        delete target.uid;
+        delete target.participantCode;
+      }
     },
   };
   return { store, state };
@@ -94,6 +100,9 @@ test('削除申請: 期間内はデータ削除、期間終了は保持、対応
   assert.equal(state.sessions.get('p_2/expA'), 7); // 他人のデータには触れない
   assert.equal(state.identity.has('u1'), false);
   assert.equal(state.requests.get('r1').status, 'processed');
+  // 対応表を破棄した申請では、uid と参加者コードのペアも申請文書から消える
+  assert.equal(state.requests.get('r1').uid, undefined);
+  assert.equal(state.requests.get('r1').participantCode, undefined);
 });
 
 test('削除申請: 撤回申請済みの同意は期間判定によらずデータを削除する', async () => {
@@ -131,6 +140,9 @@ test('削除申請: 期間を判定できない同意があると対応表を保
   assert.equal(state.identity.has('u1'), true);
   assert.equal(state.requests.get('r1').status, 'processed');
   assert.equal(state.requests.get('r1').linkRetained, true);
+  // 対応表を保持する場合は、申請の識別子も後続処理のために保持される
+  assert.equal(state.requests.get('r1').uid, 'u1');
+  assert.equal(state.requests.get('r1').participantCode, 'p_1');
 });
 
 test('削除申請: 処理済みの申請は再配送されても何もしない（冪等性）', async () => {

@@ -44,6 +44,14 @@ export interface DeletionRequestPatch {
   status: 'processed';
   linkRetained?: boolean;
   note?: string;
+  /**
+   * true の場合、申請文書から uid と participantCode を削除する。
+   * 対応表を破棄した後の申請文書に uid と参加者コードのペアを残すと、
+   * それ自体が対応表の断片になり、保持したデータの匿名性が崩れるため。
+   * 復旧のために残す設計でもない（削除後の個別対応はできないことが前提）。
+   * 対応表自体を保持する場合（blocking）は、後続の手動処理に必要なため消さない。
+   */
+  scrubIdentifiers?: boolean;
 }
 
 export interface Store {
@@ -136,6 +144,7 @@ export async function processDeletion(
   }
 
   if (summary.blocking) {
+    // 対応表を保持する間は、申請の識別子も後続処理のために保持する
     await store.updateDeletionRequest(requestId, {
       status: 'processed',
       linkRetained: true,
@@ -147,7 +156,12 @@ export async function processDeletion(
   await store.deleteIdentity(uid, participantCode);
   summary.identityDeleted = true;
   summary.authResult = await store.deleteAuthUser(uid);
-  await store.updateDeletionRequest(requestId, { status: 'processed' });
+  // 対応表を破棄したので、申請文書からも uid と参加者コードのペアを取り除く。
+  // 残るのは申請日時・処理日時と処理結果のみ（処理の証跡としての最小限）
+  await store.updateDeletionRequest(requestId, {
+    status: 'processed',
+    scrubIdentifiers: true,
+  });
   return summary;
 }
 
